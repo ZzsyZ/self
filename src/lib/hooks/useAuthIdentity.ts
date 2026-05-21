@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import type { User } from "firebase/auth";
 import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
 import { auth, isFirebaseConfigured } from "@/lib/firebase";
@@ -8,13 +8,51 @@ import { auth, isFirebaseConfigured } from "@/lib/firebase";
 export const FIXED_ACCOUNT_ID = "lin";
 const FIXED_ACCOUNT_PASSWORD = "123456";
 const AUTHENTICATED_KEY = "habit_mirror_authenticated";
+const authStoreListeners = new Set<() => void>();
+
+function readStoredAuthentication() {
+  try {
+    return window.localStorage.getItem(AUTHENTICATED_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function writeStoredAuthentication(isAuthenticated: boolean) {
+  try {
+    if (isAuthenticated) {
+      window.localStorage.setItem(AUTHENTICATED_KEY, "true");
+      notifyStoredAuthenticationChanged();
+      return;
+    }
+
+    window.localStorage.removeItem(AUTHENTICATED_KEY);
+    notifyStoredAuthenticationChanged();
+  } catch {
+    // Some embedded browsers disable storage. Keep the in-memory session usable.
+  }
+}
+
+function notifyStoredAuthenticationChanged() {
+  authStoreListeners.forEach((listener) => listener());
+}
+
+function subscribeStoredAuthentication(listener: () => void) {
+  authStoreListeners.add(listener);
+  window.addEventListener("storage", listener);
+
+  return () => {
+    authStoreListeners.delete(listener);
+    window.removeEventListener("storage", listener);
+  };
+}
 
 export function useAuthIdentity() {
   const [user, setUser] = useState<User | null>(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(() =>
-    typeof window === "undefined"
-      ? false
-      : window.localStorage.getItem(AUTHENTICATED_KEY) === "true",
+  const isAuthenticated = useSyncExternalStore(
+    subscribeStoredAuthentication,
+    readStoredAuthentication,
+    () => false,
   );
   const [isLoading, setIsLoading] = useState(isFirebaseConfigured);
   const [error, setError] = useState<string | null>(
@@ -62,14 +100,12 @@ export function useAuthIdentity() {
       return false;
     }
 
-    setIsAuthenticated(true);
-    window.localStorage.setItem(AUTHENTICATED_KEY, "true");
+    writeStoredAuthentication(true);
     return true;
   }, []);
 
   const logout = useCallback(() => {
-    setIsAuthenticated(false);
-    window.localStorage.removeItem(AUTHENTICATED_KEY);
+    writeStoredAuthentication(false);
   }, []);
 
   const activeUid = useMemo(

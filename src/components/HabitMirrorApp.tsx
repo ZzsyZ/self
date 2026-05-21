@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   CalendarDays,
@@ -17,6 +17,8 @@ import {
   LogOut,
   Loader2,
   Lock,
+  Mic,
+  MicOff,
   MoreVertical,
   Plus,
   RotateCcw,
@@ -56,11 +58,66 @@ type ActiveHabit = {
   type: HabitType;
 };
 
+type BrowserSpeechRecognition = {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onend: (() => void) | null;
+  onerror: ((event: BrowserSpeechRecognitionErrorEvent) => void) | null;
+  onresult: ((event: BrowserSpeechRecognitionEvent) => void) | null;
+  onstart: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+
+type BrowserSpeechRecognitionConstructor = new () => BrowserSpeechRecognition;
+
+type BrowserSpeechRecognitionEvent = {
+  resultIndex: number;
+  results: {
+    length: number;
+    [index: number]: {
+      isFinal: boolean;
+      [index: number]: {
+        transcript: string;
+      };
+    };
+  };
+};
+
+type BrowserSpeechRecognitionErrorEvent = {
+  error: string;
+};
+
 const statusClassName: Record<StatusMessage["type"], string> = {
   info: "bg-indigo-50 text-indigo-600",
   success: "bg-emerald-50 text-emerald-600",
   error: "bg-rose-50 text-rose-600",
 };
+
+function getSpeechRecognitionConstructor(): BrowserSpeechRecognitionConstructor | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const speechWindow = window as Window &
+    typeof globalThis & {
+      SpeechRecognition?: BrowserSpeechRecognitionConstructor;
+      webkitSpeechRecognition?: BrowserSpeechRecognitionConstructor;
+    };
+
+  return speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition ?? null;
+}
+
+function composeSpeechText(baseText: string, finalText: string, interimText: string) {
+  const speechText = `${finalText}${interimText}`.trim();
+
+  if (!speechText) {
+    return baseText;
+  }
+
+  return baseText ? `${baseText}\n${speechText}` : speechText;
+}
 
 export function HabitMirrorApp() {
   const [currentDate, setCurrentDate] = useState(() => new Date());
@@ -76,9 +133,13 @@ export function HabitMirrorApp() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [tempHabitName, setTempHabitName] = useState("");
+  const [isListening, setIsListening] = useState(false);
 
   const longPressTimer = useRef<number | null>(null);
   const startPos = useRef({ x: 0, y: 0 });
+  const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
+  const speechBaseTextRef = useRef("");
+  const committedSpeechRef = useRef("");
 
   const {
     activeUid,
@@ -130,6 +191,12 @@ export function HabitMirrorApp() {
       window.setTimeout(() => setStatusMsg(null), 2400);
     }
   };
+
+  useEffect(() => {
+    return () => {
+      recognitionRef.current?.stop();
+    };
+  }, []);
 
   const changeDay = (days: number) => {
     setCurrentDate((previous) => addDays(previous, days));
@@ -196,6 +263,83 @@ export function HabitMirrorApp() {
       });
     } finally {
       setIsAnalyzing(false);
+    }
+  };
+
+  const toggleSpeechInput = () => {
+    if (isListening) {
+      recognitionRef.current?.stop();
+      return;
+    }
+
+    const SpeechRecognitionConstructor = getSpeechRecognitionConstructor();
+
+    if (!SpeechRecognitionConstructor) {
+      showStatus({
+        type: "error",
+        text: "当前浏览器不支持语音输入，请使用 Chrome 或 Edge",
+      });
+      return;
+    }
+
+    const recognition = new SpeechRecognitionConstructor();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "zh-CN";
+
+    speechBaseTextRef.current = userInput.trimEnd();
+    committedSpeechRef.current = "";
+
+    recognition.onstart = () => {
+      setIsListening(true);
+      showStatus({ type: "info", text: "正在听你说话..." }, false);
+    };
+
+    recognition.onresult = (event) => {
+      let interimText = "";
+
+      for (let index = event.resultIndex; index < event.results.length; index += 1) {
+        const result = event.results[index];
+        const transcript = result[0]?.transcript ?? "";
+
+        if (result.isFinal) {
+          committedSpeechRef.current = `${committedSpeechRef.current}${transcript}`;
+        } else {
+          interimText = `${interimText}${transcript}`;
+        }
+      }
+
+      setUserInput(
+        composeSpeechText(speechBaseTextRef.current, committedSpeechRef.current, interimText),
+      );
+    };
+
+    recognition.onerror = (event) => {
+      setIsListening(false);
+      recognitionRef.current = null;
+      showStatus({
+        type: "error",
+        text:
+          event.error === "not-allowed" || event.error === "service-not-allowed"
+            ? "麦克风权限被拒绝，请在浏览器里允许麦克风"
+            : "语音输入失败，请再试一次",
+      });
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+      recognitionRef.current = null;
+      showStatus({ type: "info", text: "语音输入已结束" });
+    };
+
+    recognitionRef.current = recognition;
+
+    try {
+      recognition.start();
+    } catch {
+      recognitionRef.current = null;
+      setIsListening(false);
+      showStatus({ type: "error", text: "语音输入启动失败，请再试一次" });
     }
   };
 
@@ -308,6 +452,20 @@ export function HabitMirrorApp() {
     showStatus({ type: "success", text: "已进入 lin 的同步空间" });
   };
 
+  const handleQuickLogin = () => {
+    const isValid = login("lin", "123456");
+
+    if (!isValid) {
+      setAccountIdInput(accountId);
+      setShowAccountModal(true);
+      return;
+    }
+
+    setPasswordInput("");
+    setShowAccountModal(false);
+    showStatus({ type: "success", text: "已进入 lin 的同步空间" });
+  };
+
   const handleLogout = () => {
     logout();
     setPasswordInput("");
@@ -383,10 +541,7 @@ export function HabitMirrorApp() {
               使用固定账号 lin 登录后，多端都会读取同一份记录。
             </p>
             <button
-              onClick={() => {
-                setAccountIdInput(accountId);
-                setShowAccountModal(true);
-              }}
+              onClick={handleQuickLogin}
               className="mt-5 min-h-11 rounded-xl bg-slate-900 px-6 text-xs font-black uppercase text-white shadow-lg shadow-slate-200"
             >
               登录
@@ -402,9 +557,24 @@ export function HabitMirrorApp() {
                 onChange={(event) => setUserInput(event.target.value)}
               />
               <div className="mt-2 flex items-center justify-between border-t border-slate-50 pt-3">
-                <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                  <Cloud size={12} className="text-emerald-400" />
-                  {activeUid ? "lin 同步中" : "等待登录"}
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                    <Cloud size={12} className="text-emerald-400" />
+                    {activeUid ? "lin 同步中" : "等待登录"}
+                  </div>
+                  <button
+                    aria-label={isListening ? "停止语音输入" : "开始语音输入"}
+                    title={isListening ? "停止语音输入" : "开始语音输入"}
+                    onClick={toggleSpeechInput}
+                    disabled={isAnalyzing}
+                    className={`flex h-10 w-10 items-center justify-center rounded-xl transition ${
+                      isListening
+                        ? "bg-rose-50 text-rose-600 ring-4 ring-rose-500/10"
+                        : "bg-indigo-50 text-indigo-600 hover:bg-indigo-100 disabled:bg-slate-50 disabled:text-slate-300"
+                    }`}
+                  >
+                    {isListening ? <MicOff size={16} /> : <Mic size={16} />}
+                  </button>
                 </div>
                 <button
                   onClick={analyzeHabits}
