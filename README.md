@@ -10,7 +10,7 @@ Next.js 版本的习惯记录与 AI 审计工具。数据同步使用 Supabase P
 SUPABASE_DATABASE_URL=postgresql://postgres.<project-ref>:<password>@<session-pooler-host>:5432/postgres?sslmode=require
 POSTGRES_POOL_MAX=5
 HABIT_MIRROR_ACCOUNT_ID=lin
-HABIT_MIRROR_ACCOUNT_PASSWORD=123456
+HABIT_MIRROR_ACCOUNT_PASSWORD=<set-a-local-password>
 HABIT_MIRROR_SESSION_SECRET=replace-with-a-long-random-string
 
 OPENROUTER_API_KEY=
@@ -20,6 +20,7 @@ OPENROUTER_APP_TITLE=Habit Mirror
 ```
 
 `SUPABASE_DATABASE_URL` 使用 Supabase Dashboard 里的 Session pooler 连接串。不要把数据库连接串放到 `NEXT_PUBLIC_` 环境变量里。
+`HABIT_MIRROR_ACCOUNT_PASSWORD` 只应配置在本地 `.env.local` 或 Netlify 环境变量中，不要提交真实密码。
 
 ## Supabase 数据表
 
