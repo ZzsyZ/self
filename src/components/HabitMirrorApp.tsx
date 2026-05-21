@@ -82,7 +82,6 @@ export function HabitMirrorApp() {
 
   const {
     activeUid,
-    firebaseUid,
     accountId,
     isAuthenticated,
     isLoading: isAuthLoading,
@@ -295,8 +294,8 @@ export function HabitMirrorApp() {
     }
   };
 
-  const handleLogin = () => {
-    const isValid = login(accountIdInput, passwordInput);
+  const handleLogin = async () => {
+    const isValid = await login(accountIdInput, passwordInput);
 
     if (!isValid) {
       showStatus({ type: "error", text: "账号或密码不正确" });
@@ -308,8 +307,8 @@ export function HabitMirrorApp() {
     showStatus({ type: "success", text: "已进入 lin 的同步空间" });
   };
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     setPasswordInput("");
     setShowAccountModal(false);
     showStatus({ type: "info", text: "已退出账号" });
@@ -654,9 +653,9 @@ export function HabitMirrorApp() {
                 </div>
               )}
 
-              {firebaseUid && (
+              {isAuthenticated && (
                 <p className="truncate text-center font-mono text-[10px] font-bold text-slate-300">
-                  本机 Firebase 会话：{firebaseUid}
+                  Supabase sync: {activeUid}
                 </p>
               )}
             </div>

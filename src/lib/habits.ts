@@ -5,7 +5,9 @@ export const emptyDailyRecord: DailyRecord = {
   rawLogs: [],
 };
 
-export function normalizeDailyRecord(input: Partial<DailyRecord> | undefined): DailyRecord {
+export function normalizeDailyRecord(
+  input: { habits?: unknown; rawLogs?: unknown } | undefined,
+): DailyRecord {
   return {
     habits: normalizeHabits(input?.habits),
     rawLogs: normalizeRawLogs(input?.rawLogs),
