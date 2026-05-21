@@ -143,7 +143,6 @@ export function HabitMirrorApp() {
 
   const {
     activeUid,
-    firebaseUid,
     accountId,
     isAuthenticated,
     isLoading: isAuthLoading,
@@ -439,8 +438,8 @@ export function HabitMirrorApp() {
     }
   };
 
-  const handleLogin = () => {
-    const isValid = login(accountIdInput, passwordInput);
+  const handleLogin = async () => {
+    const isValid = await login(accountIdInput, passwordInput);
 
     if (!isValid) {
       showStatus({ type: "error", text: "账号或密码不正确" });
@@ -452,22 +451,8 @@ export function HabitMirrorApp() {
     showStatus({ type: "success", text: "已进入 lin 的同步空间" });
   };
 
-  const handleQuickLogin = () => {
-    const isValid = login("lin", "123456");
-
-    if (!isValid) {
-      setAccountIdInput(accountId);
-      setShowAccountModal(true);
-      return;
-    }
-
-    setPasswordInput("");
-    setShowAccountModal(false);
-    showStatus({ type: "success", text: "已进入 lin 的同步空间" });
-  };
-
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     setPasswordInput("");
     setShowAccountModal(false);
     showStatus({ type: "info", text: "已退出账号" });
@@ -541,7 +526,10 @@ export function HabitMirrorApp() {
               使用固定账号 lin 登录后，多端都会读取同一份记录。
             </p>
             <button
-              onClick={handleQuickLogin}
+              onClick={() => {
+                setAccountIdInput(accountId);
+                setShowAccountModal(true);
+              }}
               className="mt-5 min-h-11 rounded-xl bg-slate-900 px-6 text-xs font-black uppercase text-white shadow-lg shadow-slate-200"
             >
               登录
@@ -824,9 +812,9 @@ export function HabitMirrorApp() {
                 </div>
               )}
 
-              {firebaseUid && (
+              {isAuthenticated && (
                 <p className="truncate text-center font-mono text-[10px] font-bold text-slate-300">
-                  本机 Firebase 会话：{firebaseUid}
+                  Supabase sync: {activeUid}
                 </p>
               )}
             </div>

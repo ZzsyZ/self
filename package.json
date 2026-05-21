@@ -6,19 +6,21 @@
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
+    "migrate:db": "node scripts/migrate-database.mjs",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "firebase": "latest",
     "lucide-react": "latest",
     "next": "latest",
+    "pg": "^8.21.0",
     "react": "latest",
     "react-dom": "latest"
   },
   "devDependencies": {
     "@eslint/eslintrc": "latest",
     "@types/node": "latest",
+    "@types/pg": "^8.20.0",
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "autoprefixer": "^10.4.21",

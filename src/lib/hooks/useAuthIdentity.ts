@@ -1,127 +1,107 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import type { User } from "firebase/auth";
-import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
-import { auth, isFirebaseConfigured } from "@/lib/firebase";
+import { useCallback, useEffect, useState } from "react";
 
 export const FIXED_ACCOUNT_ID = "lin";
-const FIXED_ACCOUNT_PASSWORD = "123456";
-const AUTHENTICATED_KEY = "habit_mirror_authenticated";
-const authStoreListeners = new Set<() => void>();
 
-function readStoredAuthentication() {
-  try {
-    return window.localStorage.getItem(AUTHENTICATED_KEY) === "true";
-  } catch {
-    return false;
-  }
-}
-
-function writeStoredAuthentication(isAuthenticated: boolean) {
-  try {
-    if (isAuthenticated) {
-      window.localStorage.setItem(AUTHENTICATED_KEY, "true");
-      notifyStoredAuthenticationChanged();
-      return;
-    }
-
-    window.localStorage.removeItem(AUTHENTICATED_KEY);
-    notifyStoredAuthenticationChanged();
-  } catch {
-    // Some embedded browsers disable storage. Keep the in-memory session usable.
-  }
-}
-
-function notifyStoredAuthenticationChanged() {
-  authStoreListeners.forEach((listener) => listener());
-}
-
-function subscribeStoredAuthentication(listener: () => void) {
-  authStoreListeners.add(listener);
-  window.addEventListener("storage", listener);
-
-  return () => {
-    authStoreListeners.delete(listener);
-    window.removeEventListener("storage", listener);
-  };
-}
+type SessionResponse = {
+  isAuthenticated?: boolean;
+  accountId?: string;
+  error?: string;
+};
 
 export function useAuthIdentity() {
-  const [user, setUser] = useState<User | null>(null);
-  const isAuthenticated = useSyncExternalStore(
-    subscribeStoredAuthentication,
-    readStoredAuthentication,
-    () => false,
-  );
-  const [isLoading, setIsLoading] = useState(isFirebaseConfigured);
-  const [error, setError] = useState<string | null>(
-    isFirebaseConfigured ? null : "Firebase 配置未填写，请先设置 .env.local。",
-  );
+  const [accountId, setAccountId] = useState(FIXED_ACCOUNT_ID);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isFirebaseConfigured || !auth) {
-      return;
-    }
-
     let cancelled = false;
-    const firebaseAuth = auth;
 
-    const unsubscribe = onAuthStateChanged(firebaseAuth, async (nextUser) => {
-      if (cancelled) {
-        return;
-      }
-
-      setUser(nextUser);
-
-      if (nextUser) {
-        setIsLoading(false);
-        return;
-      }
-
+    async function loadSession() {
       try {
-        await signInAnonymously(firebaseAuth);
-      } catch {
+        const session = await requestSession("/api/session", { method: "GET" });
+
+        if (cancelled) {
+          return;
+        }
+
+        setAccountId(session.accountId ?? FIXED_ACCOUNT_ID);
+        setIsAuthenticated(Boolean(session.isAuthenticated));
+        setError(null);
+      } catch (sessionError) {
         if (!cancelled) {
-          setError("匿名登录失败，请检查 Firebase Auth 配置。");
+          setError(
+            sessionError instanceof Error
+              ? sessionError.message
+              : "读取登录状态失败，请检查同步服务配置。",
+          );
+        }
+      } finally {
+        if (!cancelled) {
           setIsLoading(false);
         }
       }
-    });
+    }
+
+    loadSession();
 
     return () => {
       cancelled = true;
-      unsubscribe();
     };
   }, []);
 
-  const login = useCallback((accountId: string, password: string) => {
-    if (accountId.trim() !== FIXED_ACCOUNT_ID || password !== FIXED_ACCOUNT_PASSWORD) {
+  const login = useCallback(async (nextAccountId: string, password: string) => {
+    try {
+      const session = await requestSession("/api/session", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ accountId: nextAccountId, password }),
+      });
+
+      setAccountId(session.accountId ?? nextAccountId.trim());
+      setIsAuthenticated(Boolean(session.isAuthenticated));
+      setError(null);
+      return Boolean(session.isAuthenticated);
+    } catch (loginError) {
+      setError(loginError instanceof Error ? loginError.message : "登录失败，请稍后重试。");
       return false;
     }
-
-    writeStoredAuthentication(true);
-    return true;
   }, []);
 
-  const logout = useCallback(() => {
-    writeStoredAuthentication(false);
+  const logout = useCallback(async () => {
+    try {
+      const session = await requestSession("/api/session", { method: "DELETE" });
+      setAccountId(session.accountId ?? FIXED_ACCOUNT_ID);
+      setError(null);
+    } catch (logoutError) {
+      setError(logoutError instanceof Error ? logoutError.message : "退出失败，请稍后重试。");
+    } finally {
+      setIsAuthenticated(false);
+    }
   }, []);
-
-  const activeUid = useMemo(
-    () => (isAuthenticated ? FIXED_ACCOUNT_ID : null),
-    [isAuthenticated],
-  );
 
   return {
-    user,
-    firebaseUid: user?.uid ?? null,
-    activeUid,
-    accountId: FIXED_ACCOUNT_ID,
+    activeUid: isAuthenticated ? accountId : null,
+    accountId,
     isAuthenticated,
     isLoading,
     error,
     login,
     logout,
   };
+}
+
+async function requestSession(url: string, init: RequestInit) {
+  const response = await fetch(url, init);
+  const payload = (await response.json().catch(() => null)) as SessionResponse | null;
+
+  if (!response.ok) {
+    throw new Error(payload?.error ?? "同步服务请求失败，请稍后重试。");
+  }
+
+  return payload ?? {};
 }
